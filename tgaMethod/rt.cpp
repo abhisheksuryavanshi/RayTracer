@@ -2,7 +2,17 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <assert.h>
+#include <vector>
+#include <random>
 #include "nicemath.h"
+
+// Contains all the information of a hit point
+//
+struct hit_record
+{
+    nm::float3 normal;
+    float t;
+};
 
 // Allows us to specify individual pixel colours and
 // dump it to a file.
@@ -72,7 +82,7 @@ public:
     const nm::float3& origin() const { return origin_; }
     const nm::float3& direction() const { return direction_; }
 
-    nm::float3 point_at(float t)
+    nm::float3 point_at(float t) const
     {
         return origin_ + direction_ * t;
     }
@@ -105,11 +115,94 @@ private:
     nm::float3 origin_;
 };
 
+class hitable
+{
+public:
+    virtual bool hit_test (const ray &r, 
+                           float     tmin,
+                           float     tmax,
+                           hit_record &hit) const = 0;
+};
+
+class sphere : public hitable 
+{
+public:
+    sphere(const nm::float3 &center, 
+           float radius) : 
+           center_(center),  
+           radius_(radius) {}
+    
+    bool hit_test (const ray &r, 
+                   float     tmin,
+                   float     tmax,
+                   hit_record &hit) const override 
+    {
+        const nm::float3 oc = r.origin() - center_;
+        const float a = nm::dot(r.direction(), r.direction());
+        const float b = nm::dot(oc, r.direction())*2.0f;
+        const float c = nm::dot(oc, oc) - radius_ * radius_;
+        const float d = b * b - 4 * a * c;
+        if (d > 0.0f)
+        {
+            const float t1 = (-b - sqrt(d)) / (2.0f * a);
+            const float t2 = (-b + sqrt(d)) / (2.0f * a);
+            if(t1 > tmin && t1 < tmax) hit.t = t1;
+            else if(t2 > tmin && t2 < tmax) hit.t = t2;
+            else return false;
+            const nm::float3 intersection_point = r.point_at(hit.t);
+            hit.normal = nm::normalize(intersection_point - center_);
+        }
+        return d > 0.0f;
+    }
+private:
+    nm::float3 center_;
+    float radius_;
+};
+
+class sphere_list : hitable 
+{
+public:
+    template <class ...Args>
+    sphere_list(Args... args) : list_ { std::forward<Args>(args)... } {}
+
+    bool hit_test (const ray &r, 
+                   float     tmin,
+                   float     tmax,
+                   hit_record &hit) const override
+    {
+        bool anyhit = false;
+        float closest_hit = tmax;
+        for(const sphere &s : list_)
+        {
+            bool has_hit = s.hit_test(r, tmin, closest_hit, hit);
+            if(has_hit) closest_hit = hit.t;
+            anyhit |= has_hit;
+        }
+        return anyhit;
+    }
+private:
+    std::vector<sphere> list_;
+};
+
 nm::float3 color(const ray &r)
 {
+    sphere_list scene {
+        sphere { nm::float3{0.0f, 0.0f, -1.0f}, 0.5f},
+        sphere { nm::float3{0.0f, -100.0f, -1.0f}, 99.0f}
+    };
+    hit_record hit;
+    if(scene.hit_test(r, 0.0f, 100.0f, hit)) return hit.normal * 0.5f + nm::float3{ 0.5f, 0.5f, 0.5f };
     const float t = 0.5f * (r.direction().y() + 1.0f);
     return (1.0f - t) * nm::float3 {1.0f, 1.0f, 1.0f} +
                    t  * nm::float3 {0.2f, 0.1f, 0.8f};
+}
+
+float randf()
+{
+    static std::random_device rd;
+    static std::mt19937 gen(rd());
+    std::uniform_real_distribution<float> d { 0.0f, 1.0f };
+    return d(gen);
 }
 
 int main(int argc, char const *argv[])
@@ -120,9 +213,15 @@ int main(int argc, char const *argv[])
     {
         for (size_t c = 0u; c < fb.width(); c++)
         {
-            const float u = (float) c / (float) fb.width();
-            const float v = (float) r / (float) fb.height();
-            nm::float3 col = color(cam.get_ray(u,v));
+            nm::float3 col = { 0.0f, 0.0f, 0.0f };
+            const size_t ns = 10u;
+            for (size_t s = 0u; s < ns; s++)
+            {
+                const float u = ((float) c + randf()) / (float) fb.width();
+                const float v = ((float) r + randf()) / (float) fb.height();
+                col = col + color(cam.get_ray(u,v));
+            }
+            col /= (float)ns;
             fb.set_pixel(r, c, 255.99f * col.x(), 255.99f * col.y(), 255.99f * col.z());
         }
     }
