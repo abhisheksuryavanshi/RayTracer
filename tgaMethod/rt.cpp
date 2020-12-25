@@ -12,6 +12,7 @@ struct hit_record
 {
     nm::float3 normal;
     float t;
+    nm::float3 p;
 };
 
 // Allows us to specify individual pixel colours and
@@ -149,8 +150,8 @@ public:
             if(t1 > tmin && t1 < tmax) hit.t = t1;
             else if(t2 > tmin && t2 < tmax) hit.t = t2;
             else return false;
-            const nm::float3 intersection_point = r.point_at(hit.t);
-            hit.normal = nm::normalize(intersection_point - center_);
+            hit.p = r.point_at(hit.t);
+            hit.normal = nm::normalize(hit.p - center_);
         }
         return d > 0.0f;
     }
@@ -184,25 +185,37 @@ private:
     std::vector<sphere> list_;
 };
 
-nm::float3 color(const ray &r)
-{
-    sphere_list scene {
-        sphere { nm::float3{0.0f, 0.0f, -1.0f}, 0.5f},
-        sphere { nm::float3{0.0f, -100.0f, -1.0f}, 99.0f}
-    };
-    hit_record hit;
-    if(scene.hit_test(r, 0.0f, 100.0f, hit)) return hit.normal * 0.5f + nm::float3{ 0.5f, 0.5f, 0.5f };
-    const float t = 0.5f * (r.direction().y() + 1.0f);
-    return (1.0f - t) * nm::float3 {1.0f, 1.0f, 1.0f} +
-                   t  * nm::float3 {0.2f, 0.1f, 0.8f};
-}
-
 float randf()
 {
     static std::random_device rd;
     static std::mt19937 gen(rd());
     std::uniform_real_distribution<float> d { 0.0f, 1.0f };
     return d(gen);
+}
+
+nm::float3 random_int_unit_sphere() {
+    nm::float3 result;
+    do {
+        result = 2.0f * nm::float3(randf(), randf(), randf()) - nm::float3( 1.0f, 1.0f, 1.0f );
+    } while(nm::lengthsq(result) > 1.0f);
+    return result;
+}
+
+nm::float3 color(const ray &r, int bounce)
+{
+    static constexpr int max_bounce = 50;
+    sphere_list scene {
+        sphere { nm::float3{0.0f, 0.0f, -1.0f}, 0.5f},
+        sphere { nm::float3{0.0f, -100.0f, -1.0f}, 99.0f}
+    };
+    hit_record hit;
+    if(scene.hit_test(r, 0.0f, 100.0f, hit)){
+        const nm::float3 target = hit.p + hit.normal + random_int_unit_sphere();
+        return 0.5f * color(ray {hit.p, target - hit.p}, bounce + 1);
+    }
+    const float t = 0.5f * (r.direction().y() + 1.0f);
+    return (1.0f - t) * nm::float3 {1.0f, 1.0f, 1.0f} +
+                   t  * nm::float3 {0.2f, 0.1f, 0.8f};
 }
 
 int main(int argc, char const *argv[])
@@ -219,10 +232,13 @@ int main(int argc, char const *argv[])
             {
                 const float u = ((float) c + randf()) / (float) fb.width();
                 const float v = ((float) r + randf()) / (float) fb.height();
-                col = col + color(cam.get_ray(u,v));
+                col = col + color(cam.get_ray(u,v), 0);
             }
             col /= (float)ns;
-            fb.set_pixel(r, c, 255.99f * col.x(), 255.99f * col.y(), 255.99f * col.z());
+            fb.set_pixel(r, c, 
+                         255.99f * sqrt(col.x()), 
+                         255.99f * sqrt(col.y()), 
+                         255.99f * sqrt(col.z()));
         }
     }
     fb.save("image.tga");
