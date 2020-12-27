@@ -4,6 +4,7 @@
 #include <assert.h>
 #include <vector>
 #include <random>
+#include <iostream>
 #include "nicemath.h"
 
 // Contains all the information of a hit point
@@ -42,6 +43,7 @@ public:
     
     void save(const char* file_path) const
     {
+        std::cout<<"In File buffer Save\n";
         FILE* fptr = fopen(file_path, "wb");
         assert(fptr);
         putc(0,fptr);
@@ -60,6 +62,7 @@ public:
         putc(0,fptr);
         fwrite(data_, kBytesPerPixel, width_ * height_, fptr);
         fclose(fptr);
+        std::cout<<"Done\n";
     }
 
     size_t width() const { return width_; }
@@ -185,12 +188,28 @@ private:
     std::vector<sphere> list_;
 };
 
+float frand(int *seed)
+{
+    union
+    {
+        float fres;
+        unsigned int ires;
+    };
+
+    seed[0] *= 16807;
+    ires = ((((unsigned int)seed[0]) >> 9) | 0x3f800000);
+    return fres - 1.0f;    
+}
+
 float randf()
 {
-    static std::random_device rd;
-    static std::mt19937 gen(rd());
-    std::uniform_real_distribution<float> d { 0.0f, 1.0f };
-    return d(gen);
+    // static std::random_device rd;
+    // static std::mt19937 gen(rd());
+    // std::uniform_real_distribution<float> d { 0.0f, 1.0f };
+    // return d(gen);
+
+    static int seed = 15677;
+    return  frand(&seed);
 }
 
 nm::float3 random_int_unit_sphere() {
@@ -203,35 +222,36 @@ nm::float3 random_int_unit_sphere() {
 
 nm::float3 color(const ray &r, int bounce)
 {
+    const float t = 0.5f * (r.direction().y() + 1.0f);
     static constexpr int max_bounce = 50;
-    sphere_list scene {
+    static sphere_list scene {
         sphere { nm::float3{0.0f, 0.0f, -1.0f}, 0.5f},
-        sphere { nm::float3{0.0f, -100.0f, -1.0f}, 99.0f}
+        sphere { nm::float3{0.0f, -100.5f, -1.0f}, 100.0f}
     };
     hit_record hit;
-    if(scene.hit_test(r, 0.0f, 100.0f, hit)){
+    if(bounce < max_bounce && scene.hit_test(r, 0.001f, 100.0f, hit)){
         const nm::float3 target = hit.p + hit.normal + random_int_unit_sphere();
         return 0.5f * color(ray {hit.p, target - hit.p}, bounce + 1);
     }
-    const float t = 0.5f * (r.direction().y() + 1.0f);
     return (1.0f - t) * nm::float3 {1.0f, 1.0f, 1.0f} +
                    t  * nm::float3 {0.2f, 0.1f, 0.8f};
 }
 
 int main(int argc, char const *argv[])
 {
-    frameBuffer fb {200u, 100u};
+    std::cout<<"main called\n";
+    frameBuffer fb {800u, 400u};
     camera cam {4.0f, 2.0f};
     for (size_t r = 0u; r < fb.height(); r++)
     {
         for (size_t c = 0u; c < fb.width(); c++)
         {
             nm::float3 col = { 0.0f, 0.0f, 0.0f };
-            const size_t ns = 10u;
+            const size_t ns = 50u;
             for (size_t s = 0u; s < ns; s++)
             {
-                const float u = ((float) c + randf()) / (float) fb.width();
-                const float v = ((float) r + randf()) / (float) fb.height();
+                const float u = ((float) c) / (float) fb.width();
+                const float v = ((float) r) / (float) fb.height();
                 col = col + color(cam.get_ray(u,v), 0);
             }
             col /= (float)ns;
@@ -241,6 +261,7 @@ int main(int argc, char const *argv[])
                          255.99f * sqrt(col.z()));
         }
     }
+    std::cout<<"calling save now\n";
     fb.save("image.tga");
     return 0;
 }
