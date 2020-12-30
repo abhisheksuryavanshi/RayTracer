@@ -7,6 +7,61 @@
 #include <iostream>
 #include "nicemath.h"
 
+float frand(int *seed)
+{
+    union
+    {
+        float fres;
+        unsigned int ires;
+    };
+
+    seed[0] *= 16807;
+    ires = ((((unsigned int)seed[0]) >> 9) | 0x3f800000);
+    return fres - 1.0f;    
+}
+
+float randf()
+{
+    // static std::random_device rd;
+    // static std::mt19937 gen(rd());
+    // std::uniform_real_distribution<float> d { 0.0f, 1.0f };
+    // return d(gen);
+
+    static int seed = 15677;
+    return  frand(&seed);
+}
+
+nm::float3 random_int_unit_sphere() {
+    nm::float3 result;
+    do {
+        result = 2.0f * nm::float3(randf(), randf(), randf()) - nm::float3( 1.0f, 1.0f, 1.0f );
+    } while(nm::lengthsq(result) > 1.0f);
+    return result;
+}
+
+class ray
+{
+public:
+    ray() = default;
+    ray(const nm::float3 &o,
+        const nm::float3 &d):
+        origin_ (o),
+        direction_ (nm::normalize(d)) {}
+    
+    const nm::float3& origin() const { return origin_; }
+    const nm::float3& direction() const { return direction_; }
+
+    nm::float3 point_at(float t) const
+    {
+        return origin_ + direction_ * t;
+    }
+
+private:
+    nm::float3 origin_;
+    nm::float3 direction_;
+};
+
+class material;
 // Contains all the information of a hit point
 //
 struct hit_record
@@ -14,6 +69,61 @@ struct hit_record
     nm::float3 normal;
     float t;
     nm::float3 p;
+    const material *mat;
+};
+
+class material
+{
+public:
+    virtual bool scatter(   const ray           &in,
+                            const hit_record    &rec,
+                            nm::float3          &attn,
+                            ray                 &scattered  )  const = 0;
+private:
+};
+
+
+class lambertian : public material
+{
+public:
+    explicit lambertian(const nm::float3 albedo) :
+        albedo_(albedo) {}
+
+    virtual bool scatter(   const ray           &in,
+                            const hit_record    &rec,
+                            nm::float3          &attn,
+                            ray                 &scattered  ) const override
+    {
+        const nm::float3 target = rec.p + rec.normal + random_int_unit_sphere();
+        attn = albedo_;
+        scattered = ray {rec.p, target - rec.p};
+        return true;
+    }
+                            
+private:
+    nm::float3 albedo_;
+};
+
+class metal : public material
+{
+public:
+    explicit metal(const nm::float3 attn) :
+        attn_(attn) {}
+
+    virtual bool scatter(   const ray           &in,
+                            const hit_record    &rec,
+                            nm::float3          &attn,
+                            ray                 &scattered  ) const override
+    {
+        const nm::float3 refl_dir = 
+        in.direction() - 2.0f * nm::dot(in.direction(), rec.normal) * rec.normal;
+        attn = attn_;
+        scattered = ray {rec.p, refl_dir - rec.p};
+        return true;
+    }
+                            
+private:
+    nm::float3 attn_;
 };
 
 // Allows us to specify individual pixel colours and
@@ -75,27 +185,6 @@ private:
     size_t height_;
 };
 
-class ray
-{
-public:
-    ray(const nm::float3 &o,
-        const nm::float3 &d):
-        origin_ (o),
-        direction_ (nm::normalize(d)) {}
-    
-    const nm::float3& origin() const { return origin_; }
-    const nm::float3& direction() const { return direction_; }
-
-    nm::float3 point_at(float t) const
-    {
-        return origin_ + direction_ * t;
-    }
-
-private:
-    nm::float3 origin_;
-    nm::float3 direction_;
-};
-
 class camera
 {
 public:
@@ -132,9 +221,11 @@ class sphere : public hitable
 {
 public:
     sphere(const nm::float3 &center, 
-           float radius) : 
+           float radius,
+           const material *mat) : 
            center_(center),  
-           radius_(radius) {}
+           radius_(radius),
+           mat_(mat) {}
     
     bool hit_test (const ray &r, 
                    float     tmin,
@@ -155,12 +246,14 @@ public:
             else return false;
             hit.p = r.point_at(hit.t);
             hit.normal = nm::normalize(hit.p - center_);
+            hit.mat = mat_;
         }
         return d > 0.0f;
     }
 private:
     nm::float3 center_;
     float radius_;
+    const material *mat_;
 };
 
 class sphere_list : hitable 
@@ -188,49 +281,30 @@ private:
     std::vector<sphere> list_;
 };
 
-float frand(int *seed)
-{
-    union
-    {
-        float fres;
-        unsigned int ires;
-    };
-
-    seed[0] *= 16807;
-    ires = ((((unsigned int)seed[0]) >> 9) | 0x3f800000);
-    return fres - 1.0f;    
-}
-
-float randf()
-{
-    // static std::random_device rd;
-    // static std::mt19937 gen(rd());
-    // std::uniform_real_distribution<float> d { 0.0f, 1.0f };
-    // return d(gen);
-
-    static int seed = 15677;
-    return  frand(&seed);
-}
-
-nm::float3 random_int_unit_sphere() {
-    nm::float3 result;
-    do {
-        result = 2.0f * nm::float3(randf(), randf(), randf()) - nm::float3( 1.0f, 1.0f, 1.0f );
-    } while(nm::lengthsq(result) > 1.0f);
-    return result;
-}
-
 nm::float3 color(const ray &r, int bounce)
 {
     const float t = 0.5f * (r.direction().y() + 1.0f);
     static constexpr int max_bounce = 50;
+    static lambertian purlple {nm::float3 {0.7f, 0.3f, 0.8f}};
+    static lambertian diffuse_gray {nm::float3 {0.5f, 0.8f, 0.5f}};
+    static metal reddish_metal { nm::float3{0.8f, 0.6f, 0.2f }};
+    static metal gray_metal { nm::float3{0.8f, 0.8f, 0.8f}};
+
     static sphere_list scene {
-        sphere { nm::float3{0.0f, 0.0f, -1.0f}, 0.5f},
-        sphere { nm::float3{0.0f, -100.5f, -1.0f}, 100.0f}
+        sphere { nm::float3{0.0f, 0.0f, -1.0f}, 0.5f, &purlple},
+        sphere { nm::float3{0.0f, -100.5f, -1.0f}, 100.0f, &diffuse_gray},
+        sphere { nm::float3{1.5f, 0.5f, -2.0f}, 0.5f, &reddish_metal},
+        sphere { nm::float3{-2.5f, 0.0f, -3.0f}, 0.5f, &gray_metal}
     };
     hit_record hit;
     if(bounce < max_bounce && scene.hit_test(r, 0.001f, 100.0f, hit)){
         const nm::float3 target = hit.p + hit.normal + random_int_unit_sphere();
+        nm::float3 attn;
+        ray scattered;
+        if(hit.mat->scatter(r, hit, attn, scattered))
+        {
+            return attn * color(scattered, bounce+1);
+        }
         return 0.5f * color(ray {hit.p, target - hit.p}, bounce + 1);
     }
     return (1.0f - t) * nm::float3 {1.0f, 1.0f, 1.0f} +
