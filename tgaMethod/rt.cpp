@@ -144,6 +144,7 @@ private:
 nm::float3 reflect(const nm::float3 &i, const nm::float3 &n)
 {
     return i - 2.0f * nm::dot(i,n) * n;
+}
 
 class dielectric : public material
 {
@@ -160,23 +161,38 @@ public:
         bool is_refracted = false;
         const nm::float3 &n = rec.normal;
         const nm::float3 &i = in.direction();
+        float refl_prob = 1.0f;
+        float cosine = 0.0f;
         if(nm::dot(n,i) > 0.0f)
         {
             is_refracted = refract(i, -n, refraction_idx_, 1.0f, refracted_dir);
+            cosine = refraction_idx_ * dot(i,n) / nm::length(i);
         }
         else
         {
             is_refracted = refract(i, n, 1.0f, refraction_idx_, refracted_dir);
+            cosine = -nm::dot(i,n) / nm::length(i);
+        }
+
+        if(is_refracted)
+        {
+            refl_prob = schlick(cosine, refraction_idx_);
         }
 
         scattered = ray {
             rec.p,
-            is_refracted ? refracted_dir : reflect(i,n)
+            randf() < refl_prob ? reflect(i,n) : refracted_dir
         };
 
         return is_refracted;
     }
 private:
+    static float schlick(float cosine, float ri)
+    {
+        const float r0 = (1.0f - ri) / (1.0f + ri);
+        const float r0sq = r0 * r0;
+        return r0sq + (1.0f - r0sq) * pow((1.0f - cosine), 5);
+    }
     static bool refract (const nm::float3 &i,
                     const nm::float3 &n,
                     float            ni,
@@ -229,7 +245,7 @@ public:
                             ray                 &scattered  ) const override
     {
         const nm::float3 refl_dir = 
-        in.direction() - reflect(in.direction(), rec.normal) + 
+        reflect(in.direction(), rec.normal) + 
         random_int_unit_sphere() * fuzz_;
 
         attn = attn_;
@@ -302,7 +318,7 @@ public:
             else if(t2 > tmin && t2 < tmax) hit.t = t2;
             else return false;
             hit.p = r.point_at(hit.t);
-            hit.normal = nm::normalize(hit.p - center_);
+            hit.normal = (hit.p - center_) / radius_;
             hit.mat = mat_;
         }
         return d > 0.0f;
@@ -348,14 +364,15 @@ nm::float3 color(const ray &r, int bounce)
     static lambertian diffuse_yellow {nm::float3 {0.8f, 0.8f, 0.0f}};
     static lambertian diffuse_blue {nm::float3 {0.1f, 0.2f, 0.5f}};
     static dielectric dielectric_1 {1.5f};
-    static metal reddish_metal { nm::float3{0.8f, 0.6f, 0.2f }, 1.0f};
+    static metal reddish_metal { nm::float3{0.8f, 0.6f, 0.2f }, 0.0f};
     static metal gray_metal { nm::float3{0.8f, 0.8f, 0.8f}, 0.3f};
 
     static sphere_list scene {
         sphere { nm::float3{0.0f, 0.0f, -1.0f}, 0.5f, &diffuse_blue},
         sphere { nm::float3{0.0f, -100.5f, -1.0f}, 100.0f, &diffuse_yellow},
         sphere { nm::float3{1.0f, 0.0f, -1.0f}, 0.5f, &reddish_metal},
-        sphere { nm::float3{-1.0f, 0.0f, -1.0f}, 0.5f, &dielectric_1}
+        sphere { nm::float3{-1.0f, 0.0f, -1.0f}, 0.5f, &dielectric_1},
+        sphere { nm::float3{-1.0f, 0.0f, -1.0f}, -0.45f, &dielectric_1}
     };
     hit_record hit;
     if(bounce < max_bounce && scene.hit_test(r, 0.001f, 100.0f, hit)){
@@ -379,10 +396,11 @@ int main(int argc, char const *argv[])
     camera cam {4.0f, 2.0f};
     for (size_t r = 0u; r < fb.height(); r++)
     {
+        std::cout<<r<<"\n";
         for (size_t c = 0u; c < fb.width(); c++)
         {
             nm::float3 col = { 0.0f, 0.0f, 0.0f };
-            const size_t ns = 5u;
+            const size_t ns = 100u;
             for (size_t s = 0u; s < ns; s++)
             {
                 const float u = ((float) c) / (float) fb.width();
