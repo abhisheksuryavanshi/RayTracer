@@ -39,97 +39,6 @@ nm::float3 random_int_unit_sphere() {
     return result;
 }
 
-class ray
-{
-public:
-    ray() = default;
-    ray(const nm::float3 &o,
-        const nm::float3 &d):
-        origin_ (o),
-        direction_ (nm::normalize(d)) {}
-    
-    const nm::float3& origin() const { return origin_; }
-    const nm::float3& direction() const { return direction_; }
-
-    nm::float3 point_at(float t) const
-    {
-        return origin_ + direction_ * t;
-    }
-
-private:
-    nm::float3 origin_;
-    nm::float3 direction_;
-};
-
-class material;
-// Contains all the information of a hit point
-//
-struct hit_record
-{
-    nm::float3 normal;
-    float t;
-    nm::float3 p;
-    const material *mat;
-};
-
-class material
-{
-public:
-    virtual bool scatter(   const ray           &in,
-                            const hit_record    &rec,
-                            nm::float3          &attn,
-                            ray                 &scattered  )  const = 0;
-private:
-};
-
-
-class lambertian : public material
-{
-public:
-    explicit lambertian(const nm::float3 albedo) :
-        albedo_(albedo) {}
-
-    virtual bool scatter(   const ray           &in,
-                            const hit_record    &rec,
-                            nm::float3          &attn,
-                            ray                 &scattered  ) const override
-    {
-        const nm::float3 target = rec.p + rec.normal + random_int_unit_sphere();
-        attn = albedo_;
-        scattered = ray {rec.p, target - rec.p};
-        return true;
-    }
-                            
-private:
-    nm::float3 albedo_;
-};
-
-class metal : public material
-{
-public:
-    explicit metal(const nm::float3 attn, float fuzz) :
-        attn_(attn),
-        fuzz_(fuzz) {}
-
-    virtual bool scatter(   const ray           &in,
-                            const hit_record    &rec,
-                            nm::float3          &attn,
-                            ray                 &scattered  ) const override
-    {
-        const nm::float3 refl_dir = 
-        in.direction() - 2.0f * nm::dot(in.direction(), rec.normal) * rec.normal + 
-        random_int_unit_sphere() * fuzz_;
-
-        attn = attn_;
-        scattered = ray {rec.p, refl_dir - rec.p};
-        return true;
-    }
-                            
-private:
-    nm::float3 attn_;
-    float fuzz_;
-};
-
 // Allows us to specify individual pixel colours and
 // dump it to a file.
 //
@@ -187,6 +96,150 @@ private:
     uint8_t* data_;
     size_t width_;
     size_t height_;
+};
+
+class ray
+{
+public:
+    ray() = default;
+    ray(const nm::float3 &o,
+        const nm::float3 &d):
+        origin_ (o),
+        direction_ (nm::normalize(d)) {}
+    
+    const nm::float3& origin() const { return origin_; }
+    const nm::float3& direction() const { return direction_; }
+
+    nm::float3 point_at(float t) const
+    {
+        return origin_ + direction_ * t;
+    }
+
+private:
+    nm::float3 origin_;
+    nm::float3 direction_;
+};
+
+class material;
+// Contains all the information of a hit point
+//
+struct hit_record
+{
+    nm::float3 normal;
+    float t;
+    nm::float3 p;
+    const material *mat;
+};
+
+class material
+{
+public:
+    virtual bool scatter(   const ray           &in,
+                            const hit_record    &rec,
+                            nm::float3          &attn,
+                            ray                 &scattered  )  const = 0;
+private:
+};
+
+nm::float3 reflect(const nm::float3 &i, const nm::float3 &n)
+{
+    return i - 2.0f * nm::dot(i,n) * n;
+
+class dielectric : public material
+{
+public:
+    explicit dielectric(float ri) : refraction_idx_(ri) {}
+    
+    bool scatter(   const ray           &in,
+                            const hit_record    &rec,
+                            nm::float3          &attn,
+                            ray                 &scattered  )  const override
+    {
+        attn = nm::float3 { 1.0f, 1.0f, 1.0f };
+        nm::float3 refracted_dir;
+        bool is_refracted = false;
+        const nm::float3 &n = rec.normal;
+        const nm::float3 &i = in.direction();
+        if(nm::dot(n,i) > 0.0f)
+        {
+            is_refracted = refract(i, -n, refraction_idx_, 1.0f, refracted_dir);
+        }
+        else
+        {
+            is_refracted = refract(i, n, 1.0f, refraction_idx_, refracted_dir);
+        }
+
+        scattered = ray {
+            rec.p,
+            is_refracted ? refracted_dir : reflect(i,n)
+        };
+
+        return is_refracted;
+    }
+private:
+    static bool refract (const nm::float3 &i,
+                    const nm::float3 &n,
+                    float            ni,
+                    float            nt,
+                    nm::float3       &refracted)
+    {
+        const nm::float3 ui = nm::normalize(i);
+        const float dt = nm::dot(i,n);
+        const float ni_o_nt = ni / nt;
+        float d = 1.0f - ni_o_nt * ni_o_nt * (1.0f - dt * dt);
+        const bool is_refracted = d > 0.0f;
+        if(is_refracted)
+            refracted = ni_o_nt * (ui - n * dt) - n * sqrtf(d);   
+        return is_refracted;
+    }
+    float refraction_idx_;
+};
+
+class lambertian : public material
+{
+public:
+    explicit lambertian(const nm::float3 albedo) :
+        albedo_(albedo) {}
+
+    virtual bool scatter(   const ray           &in,
+                            const hit_record    &rec,
+                            nm::float3          &attn,
+                            ray                 &scattered  ) const override
+    {
+        const nm::float3 target = rec.p + rec.normal + random_int_unit_sphere();
+        attn = albedo_;
+        scattered = ray {rec.p, target - rec.p};
+        return true;
+    }
+                            
+private:
+    nm::float3 albedo_;
+};
+
+class metal : public material
+{
+public:
+    explicit metal(const nm::float3 attn, float fuzz) :
+        attn_(attn),
+        fuzz_(fuzz) {}
+
+    virtual bool scatter(   const ray           &in,
+                            const hit_record    &rec,
+                            nm::float3          &attn,
+                            ray                 &scattered  ) const override
+    {
+        const nm::float3 refl_dir = 
+        in.direction() - reflect(in.direction(), rec.normal) + 
+        random_int_unit_sphere() * fuzz_;
+
+        attn = attn_;
+        scattered = ray {rec.p, refl_dir - rec.p};
+        return true;
+    }
+                            
+private:
+    nm::float3 attn_;
+    float fuzz_;
 };
 
 class camera
@@ -293,14 +346,16 @@ nm::float3 color(const ray &r, int bounce)
     static lambertian diffuse_gray {nm::float3 {0.5f, 0.5f, 0.5f}};
     static lambertian diffuse_pink {nm::float3 {0.8f, 0.3f, 0.3f}};
     static lambertian diffuse_yellow {nm::float3 {0.8f, 0.8f, 0.0f}};
+    static lambertian diffuse_blue {nm::float3 {0.1f, 0.2f, 0.5f}};
+    static dielectric dielectric_1 {1.5f};
     static metal reddish_metal { nm::float3{0.8f, 0.6f, 0.2f }, 1.0f};
     static metal gray_metal { nm::float3{0.8f, 0.8f, 0.8f}, 0.3f};
 
     static sphere_list scene {
-        sphere { nm::float3{0.0f, 0.0f, -1.0f}, 0.5f, &diffuse_pink},
+        sphere { nm::float3{0.0f, 0.0f, -1.0f}, 0.5f, &diffuse_blue},
         sphere { nm::float3{0.0f, -100.5f, -1.0f}, 100.0f, &diffuse_yellow},
         sphere { nm::float3{1.0f, 0.0f, -1.0f}, 0.5f, &reddish_metal},
-        sphere { nm::float3{-1.0f, 0.0f, -1.0f}, 0.5f, &gray_metal}
+        sphere { nm::float3{-1.0f, 0.0f, -1.0f}, 0.5f, &dielectric_1}
     };
     hit_record hit;
     if(bounce < max_bounce && scene.hit_test(r, 0.001f, 100.0f, hit)){
