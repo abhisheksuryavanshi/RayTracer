@@ -107,8 +107,9 @@ private:
 class metal : public material
 {
 public:
-    explicit metal(const nm::float3 attn) :
-        attn_(attn) {}
+    explicit metal(const nm::float3 attn, float fuzz) :
+        attn_(attn),
+        fuzz_(fuzz) {}
 
     virtual bool scatter(   const ray           &in,
                             const hit_record    &rec,
@@ -116,7 +117,9 @@ public:
                             ray                 &scattered  ) const override
     {
         const nm::float3 refl_dir = 
-        in.direction() - 2.0f * nm::dot(in.direction(), rec.normal) * rec.normal;
+        in.direction() - 2.0f * nm::dot(in.direction(), rec.normal) * rec.normal + 
+        random_int_unit_sphere() * fuzz_;
+
         attn = attn_;
         scattered = ray {rec.p, refl_dir - rec.p};
         return true;
@@ -124,6 +127,7 @@ public:
                             
 private:
     nm::float3 attn_;
+    float fuzz_;
 };
 
 // Allows us to specify individual pixel colours and
@@ -286,15 +290,17 @@ nm::float3 color(const ray &r, int bounce)
     const float t = 0.5f * (r.direction().y() + 1.0f);
     static constexpr int max_bounce = 50;
     static lambertian purlple {nm::float3 {0.7f, 0.3f, 0.8f}};
-    static lambertian diffuse_gray {nm::float3 {0.5f, 0.8f, 0.5f}};
-    static metal reddish_metal { nm::float3{0.8f, 0.6f, 0.2f }};
-    static metal gray_metal { nm::float3{0.8f, 0.8f, 0.8f}};
+    static lambertian diffuse_gray {nm::float3 {0.5f, 0.5f, 0.5f}};
+    static lambertian diffuse_pink {nm::float3 {0.8f, 0.3f, 0.3f}};
+    static lambertian diffuse_yellow {nm::float3 {0.8f, 0.8f, 0.0f}};
+    static metal reddish_metal { nm::float3{0.8f, 0.6f, 0.2f }, 1.0f};
+    static metal gray_metal { nm::float3{0.8f, 0.8f, 0.8f}, 0.3f};
 
     static sphere_list scene {
-        sphere { nm::float3{0.0f, 0.0f, -1.0f}, 0.5f, &purlple},
-        sphere { nm::float3{0.0f, -100.5f, -1.0f}, 100.0f, &diffuse_gray},
-        sphere { nm::float3{1.5f, 0.5f, -2.0f}, 0.5f, &reddish_metal},
-        sphere { nm::float3{-2.5f, 0.0f, -3.0f}, 0.5f, &gray_metal}
+        sphere { nm::float3{0.0f, 0.0f, -1.0f}, 0.5f, &diffuse_pink},
+        sphere { nm::float3{0.0f, -100.5f, -1.0f}, 100.0f, &diffuse_yellow},
+        sphere { nm::float3{1.0f, 0.0f, -1.0f}, 0.5f, &reddish_metal},
+        sphere { nm::float3{-1.0f, 0.0f, -1.0f}, 0.5f, &gray_metal}
     };
     hit_record hit;
     if(bounce < max_bounce && scene.hit_test(r, 0.001f, 100.0f, hit)){
@@ -321,7 +327,7 @@ int main(int argc, char const *argv[])
         for (size_t c = 0u; c < fb.width(); c++)
         {
             nm::float3 col = { 0.0f, 0.0f, 0.0f };
-            const size_t ns = 50u;
+            const size_t ns = 5u;
             for (size_t s = 0u; s < ns; s++)
             {
                 const float u = ((float) c) / (float) fb.width();
