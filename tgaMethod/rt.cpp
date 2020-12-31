@@ -392,7 +392,7 @@ nm::float3 color(const ray &r, int bounce)
 int main(int argc, char const *argv[])
 {
     std::cout<<"main called\n";
-    frameBuffer fb {800u, 400u};
+    frameBuffer fb {200u, 100u};
     camera cam {4.0f, 2.0f};
     for (size_t r = 0u; r < fb.height(); r++)
     {
