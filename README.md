@@ -8,9 +8,9 @@ This project was built following
 I started this project for learning C++ and Ray Tracing. 
 Thanks to above two sources for helping me do so. :)  
 
-![](ReadmeStuff\gradFinal.jpg)
-![](ReadmeStuff\imageAllFocus.jpg)
-![](ReadmeStuff\RaytracingInaWeekendOutput.jpg)
+![](https://github.com/abhisheksuryavanshi/RayTracer/tree/master/ReadmeStuff/gradFinal.jpg)
+![](https://github.com/abhisheksuryavanshi/RayTracer/tree/master/ReadmeStuff/imageAllFocus.jpg)
+![](https://github.com/abhisheksuryavanshi/RayTracer/tree/master/ReadmeStuff/RaytracingInaWeekendOutput.jpg)
 
 ## Usage example
 
