@@ -6,6 +6,7 @@
 #include <random>
 #include <iostream>
 #include "nicemath.h"
+#include <random>
 
 float frand(int *seed)
 {
@@ -31,6 +32,14 @@ float randf()
     return  frand(&seed);
 }
 
+nm::float2 random_int_unit_disk() {
+    nm::float2 result;
+    do {
+        result = 2.0f * nm::float2(randf(), randf()) - nm::float2( 1.0f, 1.0f);
+    } while(nm::lengthsq(result) > 1.0f);
+    return result;
+}
+
 nm::float3 random_int_unit_sphere() {
     nm::float3 result;
     do {
@@ -38,6 +47,7 @@ nm::float3 random_int_unit_sphere() {
     } while(nm::lengthsq(result) > 1.0f);
     return result;
 }
+
 
 // Allows us to specify individual pixel colours and
 // dump it to a file.
@@ -260,25 +270,49 @@ private:
 
 class camera
 {
+    static constexpr float Pi = 3.14159f;
 public:
-    camera(float aspect_h, float aspect_v):
-        aspect_h_ (aspect_h),
-        aspect_v_ (aspect_v),
-        origin_ (0u, 0u, 0u) {}
+    camera( float fov_v,
+            float aspect,
+            const nm::float3 &look_from,
+            const nm::float3 &look_at,
+            const nm::float3 &upvector,
+            float apreture):
+        origin_ (look_from),
+        lens_radius_ (apreture / 2.0f) 
+        {
+            const float fov_v_rad = fov_v * Pi / 180.0f;
+            const float half_height = tan(fov_v_rad / 2.0f); // Half height
+            const float half_width = half_height * aspect; // Half width
+            const float focus_distance = nm::length(look_from - look_at);
+            const nm::float3 camz = nm::normalize(look_from - look_at);
+            const nm::float3 camx = nm::normalize(nm::cross(upvector, camz));
+            const nm::float3 camy = nm::normalize(nm::cross(camz, camx));
+            hvector_ = camx * 2.0f * focus_distance * half_width;
+            vvector_ = camy * 2.0f * focus_distance * half_height;
+            lower_left_ = origin_ - 
+                          focus_distance * camz - half_width * 
+                          focus_distance * (camx) - 
+                          focus_distance * half_height * (camy);
+        }
     
     // u = 0 => left edge ; u = 1 => right edge
     // v = 0 => bottom edge ; v = 1 => top edge
     //
     ray get_ray(float u, float v)
     {
-        const nm::float3 lower_left {-aspect_h_ / 2.0f, -aspect_v_ / 2.0f, -1.0f};
-        return ray {origin_, lower_left + nm::float3{ u*aspect_h_, v*aspect_v_, 0.0f}};
+        const nm::float2 rd = random_int_unit_disk() * lens_radius_;
+        const nm::float3 ray_o = origin_ + nm::normalize(hvector_) * rd.x() + nm::normalize(vvector_) * rd.y();
+        return ray {ray_o, 
+                    lower_left_ + u * hvector_ + v * vvector_ - ray_o};
     }
 
 private:
-    float aspect_h_;
-    float aspect_v_;
+    nm::float3 hvector_;
+    nm::float3 vvector_;
+    nm::float3 lower_left_;
     nm::float3 origin_;
+    float lens_radius_;
 };
 
 class hitable
@@ -290,12 +324,14 @@ public:
                            hit_record &hit) const = 0;
 };
 
+static lambertian purple {nm::float3 {0.7f, 0.3f, 0.8f}};
+
 class sphere : public hitable 
 {
 public:
-    sphere(const nm::float3 &center, 
-           float radius,
-           const material *mat) : 
+    sphere(const nm::float3 &center = {0.0f, 0.0f, 0.0f}, 
+           float radius = 0.01f,
+           const material *mat = &purple) : 
            center_(center),  
            radius_(radius),
            mat_(mat) {}
@@ -332,8 +368,8 @@ private:
 class sphere_list : hitable 
 {
 public:
-    template <class ...Args>
-    sphere_list(Args... args) : list_ { std::forward<Args>(args)... } {}
+    sphere_list(std::vector<sphere> list) : 
+           list_(list) {}
 
     bool hit_test (const ray &r, 
                    float     tmin,
@@ -354,11 +390,10 @@ private:
     std::vector<sphere> list_;
 };
 
-nm::float3 color(const ray &r, int bounce)
+nm::float3 color(const ray &r, int bounce, std::vector<sphere> new_scene)
 {
     const float t = 0.5f * (r.direction().y() + 1.0f);
     static constexpr int max_bounce = 50;
-    static lambertian purlple {nm::float3 {0.7f, 0.3f, 0.8f}};
     static lambertian diffuse_gray {nm::float3 {0.5f, 0.5f, 0.5f}};
     static lambertian diffuse_pink {nm::float3 {0.8f, 0.3f, 0.3f}};
     static lambertian diffuse_yellow {nm::float3 {0.8f, 0.8f, 0.0f}};
@@ -367,46 +402,102 @@ nm::float3 color(const ray &r, int bounce)
     static metal reddish_metal { nm::float3{0.8f, 0.6f, 0.2f }, 0.0f};
     static metal gray_metal { nm::float3{0.8f, 0.8f, 0.8f}, 0.3f};
 
-    static sphere_list scene {
-        sphere { nm::float3{0.0f, 0.0f, -1.0f}, 0.5f, &diffuse_blue},
-        sphere { nm::float3{0.0f, -100.5f, -1.0f}, 100.0f, &diffuse_yellow},
-        sphere { nm::float3{1.0f, 0.0f, -1.0f}, 0.5f, &reddish_metal},
-        sphere { nm::float3{-1.0f, 0.0f, -1.0f}, 0.5f, &dielectric_1},
-        sphere { nm::float3{-1.0f, 0.0f, -1.0f}, -0.45f, &dielectric_1}
-    };
+    float R = cos(3.1015926f) / 2.0f;
+    // static sphere_list scene {
+    //     // sphere {nm::float3 { -R, 0.0f, -1.0f}, R, &purlple},
+    //     // sphere {nm::float3 { R, 0.0f, -1.0f}, R, &diffuse_gray},
+    //     sphere { nm::float3{0.0f, 0.0f, -1.0f}, 0.5f, &diffuse_blue},
+    //     sphere { nm::float3{0.0f, -100.5f, -1.0f}, 100.0f, &diffuse_yellow},
+    //     sphere { nm::float3{1.0f, 0.0f, -1.0f}, 0.5f, &reddish_metal},
+    //     sphere { nm::float3{-1.0f, 0.0f, -1.0f}, 0.5f, &dielectric_1},
+    //     sphere { nm::float3{-1.0f, 0.0f, -1.0f}, -0.48f, &dielectric_1}
+    // };
+
+    
+    static sphere_list scene2 = new_scene;
+
     hit_record hit;
-    if(bounce < max_bounce && scene.hit_test(r, 0.001f, 100.0f, hit)){
+    if(bounce < max_bounce && scene2.hit_test(r, 0.001f, 100.0f, hit)){
         const nm::float3 target = hit.p + hit.normal + random_int_unit_sphere();
         nm::float3 attn;
         ray scattered;
         if(hit.mat->scatter(r, hit, attn, scattered))
         {
-            return attn * color(scattered, bounce+1);
+            return attn * color(scattered, bounce+1, new_scene);
         }
-        return 0.5f * color(ray {hit.p, target - hit.p}, bounce + 1);
+        return 0.5f * color(ray {hit.p, target - hit.p}, bounce + 1, new_scene);
     }
     return (1.0f - t) * nm::float3 {1.0f, 1.0f, 1.0f} +
-                   t  * nm::float3 {0.2f, 0.1f, 0.8f};
+                   t  * nm::float3 {0.5f, 0.7f, 1.0f};
 }
 
 int main(int argc, char const *argv[])
 {
     std::cout<<"main called\n";
-    frameBuffer fb {200u, 100u};
-    camera cam {4.0f, 2.0f};
+    frameBuffer fb {800u, 400u};
+    camera cam {
+                60.0f, 
+                2.0f, 
+                nm::float3{3.5f, 1.0f, 3.0f}, 
+                nm::float3{0.0f, 1.0f, 0.0f},
+                nm::float3{0.0f, 1.0f,  0.0f},
+                0.15f
+                };
+
+    std::cout<<"scene defination start\n";
+    int n = 150;
+    std::vector<sphere> new_scene(n+1);
+    new_scene[0] = sphere { nm::float3{0.0f, -1000.0f, -1.0f}, 1000.0f, new lambertian(nm::float3{0.5,0.5,0.5})};
+    // new_scene.push_back(sphere { nm::float3{1.0f, 2.0f, 0.0f}, 0.5f, &diffuse_blue});
+    int i = 1;
+    for (int a = -5; a < 5; a++)
+    {
+        // std::cout<<"a = "<<a<<"\n";
+        for (int b = -5; b < 5; b++)
+        {
+            // std::cout<<"b = "<<b<<"\n";
+            float choose_mat = randf();
+            nm::float3 center = nm::float3{a + randf(), 0.2, b + randf()};
+
+            if(nm::length(center - nm::float3{0.0f, 1.0f, 0.0f}) > 0.9)
+            {
+                if(choose_mat <0.6)
+                {
+                    new_scene[i++] = sphere(center, 0.2f, new lambertian(nm::float3{randf(), randf(), randf()}));
+                }
+                else if(choose_mat < 0.8)
+                {
+                    new_scene[i++] = sphere(center, 0.2f, new metal(nm::float3{0.5f*(1.0f + randf()), 0.5f*(1.0f + randf()), 0.5f*(1.0f + randf())} , 0.5f * randf()));
+                }
+                else
+                {
+                    new_scene[i++] = sphere(center, 0.2f, new dielectric(1.5));
+                }
+            }
+        }   
+    }
+    // std::cout<<"Done\n";
+    new_scene[i++] = sphere(nm::float3{0.0f, 1.0f, 0.0f}, 1.0f, new dielectric(1.5));
+    new_scene[i++] = sphere(nm::float3{-2.0f, 1.0f, 0.0f}, 1.0f, new lambertian(nm::float3{0.4, 0.2, 0.1}));
+    new_scene[i++] = sphere(nm::float3{2.0f, 1.0f, 0.0f}, 1.0f, new metal(nm::float3{0.7, 0.6, 0.5},0.0));
+    std::cout<<"scene defined\n";
+
     for (size_t r = 0u; r < fb.height(); r++)
     {
-        std::cout<<r<<"\n";
+        std::cout<<"row = "<<r<<"\n";
         for (size_t c = 0u; c < fb.width(); c++)
         {
+            // std::cout<<"col = "<<c<<" fb.width = "<<fb.width()<<"\n";
             nm::float3 col = { 0.0f, 0.0f, 0.0f };
             const size_t ns = 100u;
             for (size_t s = 0u; s < ns; s++)
             {
+                // std::cout<<"antiC = "<<s<<"\n";
                 const float u = ((float) c) / (float) fb.width();
                 const float v = ((float) r) / (float) fb.height();
-                col = col + color(cam.get_ray(u,v), 0);
+                col = col + color(cam.get_ray(u,v), 0, new_scene);
             }
+            // std::cout<<"came out of color\n";
             col /= (float)ns;
             fb.set_pixel(r, c, 
                          255.99f * sqrt(col.x()), 
