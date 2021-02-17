@@ -8,9 +8,9 @@ This project was built following
 I started this project for learning C++ and Ray Tracing. 
 Thanks to above two sources for helping me do so. :)  
 
-![](ReadmeStuff\gradFinal.jpg)
-![](ReadmeStuff\imageAllFocus.jpg)
-![](ReadmeStuff\RaytracingInaWeekendOutput.jpg)
+![Many spheres + Defocus Blur](./ReadmeStuff/gradFinal.jpg)
+![Dielectric + Metal + Matte](./ReadmeStuff/imageAllFocus.jpg)
+![3 Spheres + defocus blur](./ReadmeStuff/RaytracingInaWeekendOutput.jpg)
 
 ## Usage example
 
