@@ -482,14 +482,17 @@ int main(int argc, char const *argv[])
     new_scene[i++] = sphere(nm::float3{2.0f, 1.0f, 0.0f}, 1.0f, new metal(nm::float3{0.7, 0.6, 0.5},0.0));
     std::cout<<"scene defined\n";
 
+    #pragma omp parallel for
     for (size_t r = 0u; r < fb.height(); r++)
     {
         std::cout<<"row = "<<r<<"\n";
+        #pragma omp parallel for
         for (size_t c = 0u; c < fb.width(); c++)
         {
             // std::cout<<"col = "<<c<<" fb.width = "<<fb.width()<<"\n";
             nm::float3 col = { 0.0f, 0.0f, 0.0f };
-            const size_t ns = 100u;
+            const size_t ns = 500u;
+            #pragma omp parallel for
             for (size_t s = 0u; s < ns; s++)
             {
                 // std::cout<<"antiC = "<<s<<"\n";
